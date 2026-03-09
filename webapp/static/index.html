@@ -629,20 +629,19 @@ function closeSettingsModal() {
 function saveSettings() {
   const newLang = document.getElementById('settings-lang').value;
   const newUrl = document.getElementById('settings-api-url').value.trim().replace(/\/+$/, '');
-
+  const API_BASE_prev = API_BASE;
   API_BASE = newUrl;
   localStorage.setItem('sa_api_base', newUrl);
 
+  const urlChanged = newUrl !== API_BASE_prev;
   const langChanged = newLang !== currentLang;
   currentLang = newLang;
   localStorage.setItem('sa_lang', newLang);
 
   closeSettingsModal();
 
-  if (langChanged) {
-    applyLanguage();
-    if (!sessionId) init(); // reload modes in new language
-  }
+  if (langChanged) applyLanguage();
+  if ((langChanged || urlChanged) && !sessionId) init();
 }
 
 function applyLanguage() {
