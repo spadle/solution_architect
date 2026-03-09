@@ -1,4 +1,4 @@
-"""Ollama local LLM client for question generation."""
+"""LLM client for question generation via OpenRouter API."""
 
 from __future__ import annotations
 
@@ -10,8 +10,15 @@ import urllib.error
 
 logger = logging.getLogger(__name__)
 
-OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://localhost:11434/api/chat")
-MODEL = os.environ.get("OLLAMA_MODEL", "qwen3.5:latest")
+OPENROUTER_URL = os.environ.get("OPENROUTER_URL", "https://openrouter.ai/api/v1/chat/completions")
+OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY", "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")
+MODEL = os.environ.get("LLM_MODEL", "openai/gpt-oss-20b:free")
+FALLBACK_MODELS = [
+    "google/gemma-3-27b-it:free",
+    "meta-llama/llama-3.3-70b-instruct:free",
+    "mistralai/mistral-small-3.1-24b-instruct:free",
+    "nvidia/nemotron-nano-9b-v2:free",
+]
 
 # Language directives appended to system prompts
 LANGUAGE_DIRECTIVES = {
@@ -20,41 +27,63 @@ LANGUAGE_DIRECTIVES = {
 }
 
 
-def _call_ollama(messages: list[dict], temperature: float = 0.7) -> str:
-    """Call Ollama chat API and return the response text."""
+def _call_llm(messages: list[dict], temperature: float = 0.7) -> str:
+    """Call OpenRouter chat API with automatic fallback to alternative models."""
+    models_to_try = [MODEL] + FALLBACK_MODELS
+
+    for model in models_to_try:
+        result = _call_openrouter(model, messages, temperature)
+        if result:
+            return result
+        logger.info(f"Model {model} failed, trying next fallback...")
+
+    logger.error("All models failed")
+    return ""
+
+
+def _call_openrouter(model: str, messages: list[dict], temperature: float) -> str:
+    """Call a single OpenRouter model and return response text."""
     payload = json.dumps({
-        "model": MODEL,
+        "model": model,
         "messages": messages,
-        "stream": False,
-        "options": {
-            "temperature": temperature,
-            "num_predict": 4096,
-            "no_think": True,
+        "temperature": temperature,
+        "max_tokens": 4096,
+        "provider": {
+            "data_collection": "allow",
+            "allow_fallbacks": True,
         },
     }).encode("utf-8")
 
     req = urllib.request.Request(
-        OLLAMA_URL,
+        OPENROUTER_URL,
         data=payload,
-        headers={"Content-Type": "application/json"},
+        headers={
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+            "HTTP-Referer": "https://solution-architect.app",
+            "X-Title": "Solution Architect",
+        },
     )
 
     try:
         with urllib.request.urlopen(req, timeout=120) as resp:
             data = json.loads(resp.read().decode("utf-8"))
-            content = data.get("message", {}).get("content", "")
-            # qwen3.5 may put output in thinking field if content is empty
+            msg = data.get("choices", [{}])[0].get("message", {})
+            content = msg.get("content", "") or ""
+            # Some models return reasoning instead of content
             if not content.strip():
-                thinking = data.get("message", {}).get("thinking", "")
-                if thinking:
-                    content = thinking
+                content = msg.get("reasoning", "") or ""
             content = _strip_thinking(content)
             return content.strip()
+    except urllib.error.HTTPError as e:
+        body = e.read().decode("utf-8", errors="replace") if e.fp else ""
+        logger.warning(f"OpenRouter {model} HTTP {e.code}: {body[:200]}")
+        return ""
     except urllib.error.URLError as e:
-        logger.error(f"Ollama connection failed: {e}")
+        logger.error(f"OpenRouter connection failed: {e}")
         return ""
     except Exception as e:
-        logger.error(f"Ollama error: {e}")
+        logger.error(f"OpenRouter error: {e}")
         return ""
 
 
@@ -226,9 +255,9 @@ def generate_question(
             retry_messages.append({
                 "role": "assistant", "content": '{"question": "'
             })
-            response = '{"question": "' + _call_ollama(retry_messages, temperature=temp)
+            response = '{"question": "' + _call_llm(retry_messages, temperature=temp)
         else:
-            response = _call_ollama(messages, temperature=temp)
+            response = _call_llm(messages, temperature=temp)
         print(f"[QGen] attempt={attempt} t={temp} q_count={q_count} len={len(response)} first200={response[:200]}", flush=True)
         if not response:
             continue
@@ -344,7 +373,7 @@ def generate_title(topic: str, language: str = "en") -> str:
         {"role": "system", "content": TITLE_SYSTEM + lang_directive},
         {"role": "user", "content": topic},
     ]
-    response = _call_ollama(messages, temperature=0.3)
+    response = _call_llm(messages, temperature=0.3)
     if response:
         lines = [l.strip() for l in response.split("\n") if l.strip()]
         candidates = []
@@ -396,7 +425,7 @@ def generate_branch_name(topic: str, choice: str, language: str = "en") -> str:
         {"role": "system", "content": BRANCH_NAME_SYSTEM + lang_directive},
         {"role": "user", "content": f"Topic: {topic}\nBranch choice: {choice}"},
     ]
-    response = _call_ollama(messages, temperature=0.3)
+    response = _call_llm(messages, temperature=0.3)
     if response:
         lines = [l.strip() for l in response.split("\n") if l.strip()]
         candidates = []
@@ -440,7 +469,7 @@ def generate_summary(
     context_parts.append("\nSummarize the key decisions. Respond with ONLY JSON.")
     messages.append({"role": "user", "content": "\n".join(context_parts)})
 
-    response = _call_ollama(messages, temperature=0.3)
+    response = _call_llm(messages, temperature=0.3)
     if not response:
         return None
 
@@ -497,5 +526,5 @@ def generate_doc(
     context_parts.append(f"\nGenerate the {'system architecture' if doc_type == 'architecture' else 'project documentation'} based on the above consultation.")
     messages.append({"role": "user", "content": "\n".join(context_parts)})
 
-    response = _call_ollama(messages, temperature=0.4)
+    response = _call_llm(messages, temperature=0.4)
     return response or ""

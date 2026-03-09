@@ -245,9 +245,8 @@ def generate_next_question(session_id: str) -> str:
 
     if not result:
         return (
-            "Failed to generate question from local LLM. "
-            "Check that Ollama is running with qwen3.5:latest loaded.\n"
-            "Run: `ollama run qwen3.5:latest` in a terminal."
+            "Failed to generate question from LLM. "
+            "Check that the OpenRouter API key is configured and the model is available."
         )
 
     # Add question node to diagram
