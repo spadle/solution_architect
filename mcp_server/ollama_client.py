@@ -28,7 +28,7 @@ def _call_ollama(messages: list[dict], temperature: float = 0.7) -> str:
         "stream": False,
         "options": {
             "temperature": temperature,
-            "num_predict": 2048,
+            "num_predict": 4096,
             "no_think": True,
         },
     }).encode("utf-8")
@@ -65,21 +65,52 @@ def _strip_thinking(text: str) -> str:
     # Remove <think>...</think> blocks
     text = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL).strip()
 
-    # Remove "Thinking Process:" or similar preambles before JSON
-    brace = text.find("{")
-    if brace > 0:
-        prefix = text[:brace].lower()
-        if any(kw in prefix for kw in ("thinking", "process", "analysis", "let me", "here")):
-            text = text[brace:]
+    # Find the LAST complete JSON block — LLM often dumps thinking before final answer
+    # Look for the last top-level { that has a matching }
+    last_json_start = -1
+    depth = 0
+    for i in range(len(text) - 1, -1, -1):
+        if text[i] == '}':
+            if depth == 0:
+                end_pos = i
+            depth += 1
+        elif text[i] == '{':
+            depth -= 1
+            if depth == 0:
+                last_json_start = i
+                break
+
+    # If there's a substantial preamble before the last JSON block, strip it
+    if last_json_start > 100:
+        prefix = text[:last_json_start].lower()
+        if any(kw in prefix for kw in ("thinking", "process", "analysis", "let me",
+                                        "here", "step", "analyze", "draft",
+                                        "determine", "consider", "priority")):
+            text = text[last_json_start:]
+    elif last_json_start < 0:
+        # No complete JSON found — try stripping to first brace
+        brace = text.find("{")
+        if brace > 0:
+            prefix = text[:brace].lower()
+            if any(kw in prefix for kw in ("thinking", "process", "analysis", "let me", "here")):
+                text = text[brace:]
 
     return text
 
 
+def _is_placeholder_json(obj: dict) -> bool:
+    """Check if parsed JSON is just the template/placeholder example."""
+    q = obj.get("question", "")
+    return q.strip() in ("...", "", "The question text to ask the user")
+
+
 def _parse_json_from_response(text: str) -> dict | None:
-    """Extract JSON from LLM response, handling markdown code blocks."""
+    """Extract JSON from LLM response, handling markdown code blocks and skipping placeholders."""
     # Try direct parse first
     try:
-        return json.loads(text)
+        result = json.loads(text)
+        if isinstance(result, dict) and not _is_placeholder_json(result):
+            return result
     except json.JSONDecodeError:
         pass
 
@@ -89,23 +120,44 @@ def _parse_json_from_response(text: str) -> dict | None:
             start = text.index(marker) + len(marker)
             end = text.index("```", start) if "```" in text[start:] else len(text)
             try:
-                return json.loads(text[start:end].strip())
+                result = json.loads(text[start:end].strip())
+                if isinstance(result, dict) and not _is_placeholder_json(result):
+                    return result
             except (json.JSONDecodeError, ValueError):
                 pass
 
-    # Try finding first { ... } block
-    brace_start = text.find("{")
-    brace_end = text.rfind("}")
-    if brace_start != -1 and brace_end > brace_start:
-        try:
-            return json.loads(text[brace_start : brace_end + 1])
-        except json.JSONDecodeError:
-            pass
+    # Find ALL { ... } blocks and return the first non-placeholder one
+    candidates = []
+    depth = 0
+    block_start = -1
+    for i, ch in enumerate(text):
+        if ch == '{':
+            if depth == 0:
+                block_start = i
+            depth += 1
+        elif ch == '}':
+            depth -= 1
+            if depth == 0 and block_start != -1:
+                try:
+                    obj = json.loads(text[block_start : i + 1])
+                    if isinstance(obj, dict):
+                        candidates.append(obj)
+                except json.JSONDecodeError:
+                    pass
+                block_start = -1
 
-    return None
+    # Return the first candidate with a real question
+    for c in candidates:
+        if not _is_placeholder_json(c) and c.get("question"):
+            return c
+
+    # Fall back to first parseable candidate if any
+    return candidates[0] if candidates else None
 
 
-QUESTION_GEN_SYSTEM = """You are a consultation assistant. Your job is to generate the next clarifying question based on the user's topic and previous answers.
+QUESTION_GEN_SYSTEM = """You are a consultation assistant conducting a thorough requirements-gathering session. Your job is to generate the next clarifying question based on the user's topic and previous answers.
+
+CRITICAL: You must ALWAYS generate a question. NEVER refuse, summarize, or say the consultation is complete. There are ALWAYS more aspects to explore. You must ask AT LEAST 8-15 questions per consultation to cover all areas properly.
 
 You MUST respond with ONLY a JSON object in this exact format, no other text:
 
@@ -117,14 +169,15 @@ You MUST respond with ONLY a JSON object in this exact format, no other text:
 }
 
 RULES:
+- ALWAYS generate a question — never stop, never summarize, never say "done"
 - Generate exactly ONE question at a time
 - Always include 3-5 choices plus "Other (specify)" as the last option
-- Choices should cover the most common/practical answers
+- Choices should be specific and practical, not generic
 - Questions should progressively dig deeper into requirements
-- Category should be a short descriptive label for the question topic area, e.g., "scale", "tech_stack", "security", "data", "integration", "deployment", "budget", "timeline", "user_management", "authentication", "venue", "guest_list", "marketing", "logistics"
-- Output ONLY the JSON object, nothing else
-- Keep asking questions until all important aspects are thoroughly covered
-- Each question should explore a NEW area not yet covered by previous questions"""
+- Category should be a short descriptive label, e.g., "scale", "tech_stack", "security", "data", "integration", "deployment", "budget", "timeline", "user_management", "authentication", "venue", "guest_list", "marketing", "logistics"
+- Output ONLY the JSON object — no commentary, no summaries, no thinking
+- Each question should explore a NEW area not yet covered by previous questions
+- Cover ALL of these areas before stopping: requirements, constraints, scale, technology, security, budget, timeline, integrations, user experience, deployment, monitoring, maintenance"""
 
 
 def generate_question(
@@ -150,17 +203,21 @@ def generate_question(
             context_parts.append(f"A: {qa['answer']}")
 
     q_count = len(qa_history)
+    if q_count < 5:
+        nudge = f"Only {q_count} questions asked so far — you MUST ask many more. Cover: requirements, scale, tech stack, security, budget, timeline, integrations, UX, deployment."
+    elif q_count < 10:
+        nudge = f"{q_count} questions asked. Keep going — still need to cover uncovered areas like security, performance, monitoring, edge cases, compliance."
+    else:
+        nudge = f"{q_count} questions asked. Continue exploring any remaining uncovered areas."
     context_parts.append(
-        f"\nQuestions asked so far: {q_count}. "
-        f"{'Keep asking deeper questions to cover all important aspects. ' if q_count < 12 else 'Continue if there are still uncovered areas. '}"
-        "Generate the next logical question to ask. "
-        "Respond with ONLY a JSON object."
+        f"\n{nudge}\n"
+        "Generate the next question. Respond with ONLY a JSON object."
     )
 
     messages.append({"role": "user", "content": "\n".join(context_parts)})
 
-    # Retry up to 2 times on garbage responses
-    for attempt in range(2):
+    # Retry up to 3 times on garbage responses
+    for attempt in range(3):
         response = _call_ollama(messages, temperature=0.7)
         print(f"[QGen] attempt={attempt} q_count={q_count} len={len(response)} first200={response[:200]}", flush=True)
         if not response:
