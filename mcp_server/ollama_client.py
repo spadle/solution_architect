@@ -216,10 +216,20 @@ def generate_question(
 
     messages.append({"role": "user", "content": "\n".join(context_parts)})
 
-    # Retry up to 3 times on garbage responses
-    for attempt in range(3):
-        response = _call_ollama(messages, temperature=0.7)
-        print(f"[QGen] attempt={attempt} q_count={q_count} len={len(response)} first200={response[:200]}", flush=True)
+    # Retry up to 5 times with decreasing temperature
+    temps = [0.7, 0.5, 0.3, 0.3, 0.2]
+    for attempt in range(5):
+        temp = temps[attempt]
+        # On retries, add explicit JSON reminder to user message
+        if attempt > 0:
+            retry_messages = messages.copy()
+            retry_messages.append({
+                "role": "assistant", "content": '{"question": "'
+            })
+            response = '{"question": "' + _call_ollama(retry_messages, temperature=temp)
+        else:
+            response = _call_ollama(messages, temperature=temp)
+        print(f"[QGen] attempt={attempt} t={temp} q_count={q_count} len={len(response)} first200={response[:200]}", flush=True)
         if not response:
             continue
 
@@ -253,7 +263,7 @@ def generate_question(
             "reasoning": parsed.get("reasoning", ""),
         }
 
-    print("[QGen] All attempts failed", flush=True)
+    print("[QGen] All 5 attempts failed", flush=True)
     return None
 
 
