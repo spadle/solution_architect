@@ -8,11 +8,18 @@ import os
 import urllib.request
 import urllib.error
 
+# Load .env file if python-dotenv is available
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
+
 logger = logging.getLogger(__name__)
 
 OPENROUTER_URL = os.environ.get("OPENROUTER_URL", "https://openrouter.ai/api/v1/chat/completions")
-OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY", "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")
-MODEL = os.environ.get("LLM_MODEL", "openai/gpt-oss-20b:free")
+OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY", "")
+MODEL = os.environ.get("LLM_MODEL", "openrouter/free")
 FALLBACK_MODELS = [
     "google/gemma-3-27b-it:free",
     "meta-llama/llama-3.3-70b-instruct:free",
