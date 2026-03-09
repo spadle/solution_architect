@@ -50,3 +50,5 @@ alembic/versions/__pycache__/
 
 # MCP config (local)
 .mcp.json
+
+.vercel

@@ -191,27 +191,27 @@ def generate_question(
     Returns dict with keys: question, choices, category, reasoning
     Or None if generation fails.
     """
+    q_count = len(qa_history)
+
     lang_directive = LANGUAGE_DIRECTIVES.get(language, "")
     messages = [{"role": "system", "content": QUESTION_GEN_SYSTEM + lang_directive}]
 
-    # Build context from history
+    # Build context from history — use last 12 Q&As to avoid context overflow
     context_parts = [f"Topic: {topic}", f"Mode: {mode_context}"]
-    if qa_history:
-        context_parts.append("\nPrevious Q&A:")
-        for qa in qa_history:
+    recent_qa = qa_history[-12:] if len(qa_history) > 12 else qa_history
+    if recent_qa:
+        # Include categories covered from full history so LLM explores new areas
+        all_categories = [qa.get("category", "") for qa in qa_history if qa.get("category")]
+        if all_categories:
+            context_parts.append(f"\nCategories already covered: {', '.join(set(all_categories))}")
+        context_parts.append(f"\nPrevious Q&A ({q_count} total, showing recent):")
+        for qa in recent_qa:
             context_parts.append(f"Q: {qa['question']}")
             context_parts.append(f"A: {qa['answer']}")
 
-    q_count = len(qa_history)
-    if q_count < 5:
-        nudge = f"Only {q_count} questions asked so far — you MUST ask many more. Cover: requirements, scale, tech stack, security, budget, timeline, integrations, UX, deployment."
-    elif q_count < 10:
-        nudge = f"{q_count} questions asked. Keep going — still need to cover uncovered areas like security, performance, monitoring, edge cases, compliance."
-    else:
-        nudge = f"{q_count} questions asked. Continue exploring any remaining uncovered areas."
     context_parts.append(
-        f"\n{nudge}\n"
-        "Generate the next question. Respond with ONLY a JSON object."
+        f"\n{q_count} questions asked so far. Explore a NEW uncovered area — do NOT repeat previous topics.\n"
+        "Generate the next question. It MUST be different from all previous questions. Respond with ONLY a JSON object."
     )
 
     messages.append({"role": "user", "content": "\n".join(context_parts)})
@@ -246,6 +246,19 @@ def generate_question(
         q_text = parsed["question"]
         if not q_text or q_text.strip() in ("...", "The question text to ask the user", ""):
             print(f"[QGen] Placeholder question detected: {q_text!r}, retrying", flush=True)
+            continue
+
+        # Reject duplicate questions (fuzzy match against history)
+        q_lower = q_text.lower().strip()
+        is_dup = False
+        for prev in qa_history:
+            prev_q = prev.get("question", "").lower().strip()
+            # Check exact match or high overlap
+            if q_lower == prev_q or (len(q_lower) > 20 and q_lower[:40] == prev_q[:40]):
+                is_dup = True
+                break
+        if is_dup:
+            print(f"[QGen] Duplicate question detected, retrying: {q_text[:60]}", flush=True)
             continue
 
         # Ensure choices exist, are real, and have "Other" option

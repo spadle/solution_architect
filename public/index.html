@@ -250,6 +250,26 @@ header h1 { font-size: 15px; font-weight: 600; white-space: nowrap; }
   100% { box-shadow: 0 0 0 0 rgba(99,102,241,0); }
 }
 
+/* -- Diagram Controls ----------------------- */
+#diagram-controls {
+  position: absolute; bottom: 12px; right: 12px; z-index: 20;
+  display: flex; align-items: center; gap: 4px;
+  background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
+  padding: 4px 6px; box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+}
+#diagram-controls button {
+  width: 28px; height: 28px; border: none; border-radius: 4px;
+  background: transparent; color: var(--text); cursor: pointer;
+  font-size: 16px; display: flex; align-items: center; justify-content: center;
+  transition: background 0.1s;
+}
+#diagram-controls button:hover { background: var(--surface2); }
+#zoom-level {
+  font-size: 11px; color: var(--text-dim); min-width: 36px; text-align: center;
+  user-select: none;
+}
+.controls-sep { width: 1px; height: 20px; background: var(--border); margin: 0 2px; }
+
 /* -- Post-Summary Actions ------------------- */
 .post-summary-actions {
   margin: 12px 0; padding: 16px; background: var(--surface2); border-radius: 12px;
@@ -433,6 +453,20 @@ header h1 { font-size: 15px; font-weight: 600; white-space: nowrap; }
     </div>
     <div id="diagram-panel">
       <div id="diagram-container"></div>
+      <div id="diagram-controls">
+        <button onclick="zoomIn()" title="Zoom in">+</button>
+        <span id="zoom-level">100%</span>
+        <button onclick="zoomOut()" title="Zoom out">&minus;</button>
+        <button onclick="zoomFit()" title="Fit to view" style="font-size:10px;">Fit</button>
+        <div class="controls-sep"></div>
+        <button onclick="saveSession()" id="save-btn" title="Save session">
+          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21H5a2 2 0 01-2-2V5a2 2 0 012-2h11l5 5v11a2 2 0 01-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+        </button>
+        <button onclick="document.getElementById('load-file-input').click()" id="open-btn" title="Open session">
+          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/></svg>
+        </button>
+        <input type="file" id="load-file-input" accept=".json" style="display:none" onchange="loadSession(event)">
+      </div>
     </div>
   </div>
 
@@ -556,6 +590,14 @@ const LANG = {
     actionMoreQuestions: 'Ask More Questions',
     actionExportAll: 'Export Full Session',
     actionNewBranch: 'Explore Alternative Branch',
+    saveSession: 'Save Session',
+    openSession: 'Open Session',
+    sessionSaved: 'Session saved!',
+    sessionLoaded: 'Session loaded from file.',
+    invalidFile: 'Invalid session file.',
+    zoomIn: 'Zoom in',
+    zoomOut: 'Zoom out',
+    zoomFit: 'Fit to view',
   },
   ko: {
     appTitle: '\uC194\uB8E8\uC158 \uC544\uD0A4\uD14D\uD2B8',
@@ -621,6 +663,14 @@ const LANG = {
     actionMoreQuestions: '\uCD94\uAC00 \uC9C8\uBB38\uD558\uAE30',
     actionExportAll: '\uC804\uCCB4 \uC138\uC158 \uB0B4\uBCF4\uB0B4\uAE30',
     actionNewBranch: '\uB300\uCCB4 \uBD84\uAE30 \uD0D0\uC0C9',
+    saveSession: '\uC138\uC158 \uC800\uC7A5',
+    openSession: '\uC138\uC158 \uC5F4\uAE30',
+    sessionSaved: '\uC138\uC158\uC774 \uC800\uC7A5\uB418\uC5C8\uC2B5\uB2C8\uB2E4!',
+    sessionLoaded: '\uD30C\uC77C\uC5D0\uC11C \uC138\uC158\uC744 \uBD88\uB7EC\uC654\uC2B5\uB2C8\uB2E4.',
+    invalidFile: '\uC720\uD6A8\uD558\uC9C0 \uC54A\uC740 \uC138\uC158 \uD30C\uC77C\uC785\uB2C8\uB2E4.',
+    zoomIn: '\uD655\uB300',
+    zoomOut: '\uCD95\uC18C',
+    zoomFit: '\uD654\uBA74\uC5D0 \uB9DE\uCD94\uAE30',
     disconnected: '\uC5F0\uACB0 \uC548\uB428',
   }
 };
@@ -630,8 +680,9 @@ function t(key) { return LANG[currentLang]?.[key] || LANG.en[key] || key; }
 // -- State ------------------------------------------------
 let sessionId = null, selectedMode = null, isLoading = false;
 let branches = [], activeBranchIdx = 0;
-let panX = 0, panY = 0, chatCollapsed = false;
+let panX = 0, panY = 0, zoomLevel = 1, chatCollapsed = false;
 let lastDiagramData = null;
+let pendingPanTarget = null; // 'active' or a node ID to pan to after render
 
 const AI_ICON_SVG = '<svg viewBox="0 0 24 24"><path d="M12 2L9.5 9.5 2 12l7.5 2.5L12 22l2.5-7.5L22 12l-7.5-2.5z"/></svg>';
 
@@ -941,6 +992,8 @@ async function branchFrom(questionNodeId, answer, choiceEl) {
       addChatMsg('system', t('branchExplored'));
       document.getElementById('completion-bar').classList.add('visible');
     }
+    // Pan to the new branch's current node, not the old active question
+    pendingPanTarget = data.diagram?.current_node_id || 'active';
     renderDiagram(data.diagram);
     updateStats(data.stats || data.diagram?.stats);
   } catch (e) { hideTypingIndicator(); addChatMsg('system', t('errorPrefix') + ': ' + e.message); }
@@ -1084,11 +1137,18 @@ function renderDiagram(diag) {
   const rootId = diag.nodes.find(n => !hasIncoming.has(n.id))?.id || diag.nodes[0].id;
   container.appendChild(renderNodeH(rootId, nodeMap, childMap, diag.current_node_id));
 
-  applyPan(false);
+  applyTransform(false);
 
   setTimeout(() => {
-    const active = container.querySelector('.d-node-question.active');
-    if (active) panToNode(active);
+    let target = null;
+    if (pendingPanTarget && pendingPanTarget !== 'active') {
+      target = container.querySelector(`[data-node-id="${pendingPanTarget}"]`);
+    }
+    if (!target) {
+      target = container.querySelector('.d-node-question.active');
+    }
+    if (target) panToNode(target);
+    pendingPanTarget = null;
   }, 150);
 }
 
@@ -1299,15 +1359,59 @@ function closeModal() {
     });
 
     document.addEventListener('mouseup', () => { if (isPanning) { isPanning = false; dp.classList.remove('panning'); document.getElementById('diagram-container').classList.remove('no-transition'); } });
+
+    // Mouse wheel zoom
+    dp.addEventListener('wheel', (e) => {
+      e.preventDefault();
+      const delta = e.deltaY > 0 ? -0.08 : 0.08;
+      zoomLevel = Math.min(2, Math.max(0.3, zoomLevel + delta));
+      applyTransform(false);
+    }, { passive: false });
   });
 })();
 
-function applyPan(animate) {
+function applyTransform(animate) {
   const c = document.getElementById('diagram-container');
   if (!c) return;
   if (animate) { c.classList.remove('no-transition'); } else { c.classList.add('no-transition'); }
-  c.style.transform = `translate(${panX}px, ${panY}px)`;
+  c.style.transform = `translate(${panX}px, ${panY}px) scale(${zoomLevel})`;
   if (animate) setTimeout(() => c.classList.add('no-transition'), 350);
+  updateZoomDisplay();
+}
+function applyPan(animate) { applyTransform(animate); }
+
+function updateZoomDisplay() {
+  const el = document.getElementById('zoom-level');
+  if (el) el.textContent = Math.round(zoomLevel * 100) + '%';
+}
+
+function zoomIn() {
+  zoomLevel = Math.min(2, zoomLevel + 0.1);
+  applyTransform(true);
+}
+function zoomOut() {
+  zoomLevel = Math.max(0.3, zoomLevel - 0.1);
+  applyTransform(true);
+}
+function zoomReset() {
+  zoomLevel = 1;
+  panX = 0; panY = 0;
+  applyTransform(true);
+}
+function zoomFit() {
+  const panel = document.getElementById('diagram-panel');
+  const container = document.getElementById('diagram-container');
+  if (!panel || !container) return;
+  // Reset transform to measure natural size
+  container.classList.add('no-transition');
+  container.style.transform = 'translate(0,0) scale(1)';
+  const cw = container.scrollWidth, ch = container.scrollHeight;
+  const pw = panel.clientWidth, ph = panel.clientHeight;
+  container.style.transform = '';
+  if (cw === 0 || ch === 0) return;
+  zoomLevel = Math.min(1, Math.min((pw - 40) / cw, (ph - 40) / ch));
+  panX = 0; panY = 0;
+  setTimeout(() => applyTransform(true), 50);
 }
 
 function panToNode(nodeEl) {
@@ -1446,6 +1550,87 @@ async function exportSession(format) {
   const a = document.createElement('a'); a.href = url;
   a.download = `session-${sessionId}.json`;
   a.click(); URL.revokeObjectURL(url);
+}
+
+async function saveSession() {
+  if (!sessionId) return;
+  try {
+    const res = await fetch(API_BASE + `/api/export/${sessionId}?format=json`);
+    const data = await res.json();
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    const title = (data.session?.title || sessionId).replace(/[^a-zA-Z0-9\u3131-\uD79D_-]/g, '_').substring(0, 40);
+    a.download = `session-${title}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+    addChatMsg('system', t('sessionSaved'));
+  } catch (e) {
+    addChatMsg('system', t('errorPrefix') + ': ' + e.message);
+  }
+}
+
+function loadSession(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = async function(e) {
+    try {
+      const data = JSON.parse(e.target.result);
+      if (!data.session?.id || !data.session?.mode_id) {
+        addChatMsg('system', t('invalidFile'));
+        return;
+      }
+      // Re-create the session on the backend via /api/start, then restore diagram
+      const sid = data.session.id;
+      const topic = data.session.title || 'Imported session';
+      const modeId = data.session.mode_id;
+      // Try to load the session from backend first
+      try {
+        const diagRes = await fetch(API_BASE + `/api/diagram/${sid}`);
+        if (diagRes.ok) {
+          // Session exists on backend, restore it
+          sessionId = sid;
+          const diagData = await diagRes.json();
+          document.getElementById('start-screen').style.display = 'none';
+          document.getElementById('workspace').style.display = 'flex';
+          document.getElementById('session-title').textContent = topic;
+          renderDiagram(diagData);
+          updateStats(diagData.stats);
+          // Replay QA into chat
+          if (data.qa_history) {
+            data.qa_history.forEach(qa => {
+              addChatMsg('system', qa.question);
+              addChatMsg('user', qa.answer);
+            });
+          }
+          addChatMsg('system', t('sessionLoaded'));
+          return;
+        }
+      } catch (_) {}
+      // Session doesn't exist on backend — show diagram from file data as read-only
+      sessionId = sid;
+      document.getElementById('start-screen').style.display = 'none';
+      document.getElementById('workspace').style.display = 'flex';
+      document.getElementById('session-title').textContent = topic;
+      if (data.diagram) {
+        renderDiagram(data.diagram);
+        updateStats(data.stats || data.diagram.stats);
+      }
+      if (data.qa_history) {
+        data.qa_history.forEach(qa => {
+          addChatMsg('system', qa.question);
+          addChatMsg('user', qa.answer);
+        });
+      }
+      addChatMsg('system', t('sessionLoaded'));
+    } catch (err) {
+      addChatMsg('system', t('invalidFile') + ' ' + err.message);
+    }
+  };
+  reader.readAsText(file);
+  event.target.value = '';
 }
 
 function setLoading(v) {
