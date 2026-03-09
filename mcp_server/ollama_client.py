@@ -48,8 +48,11 @@ def _call_llm(messages: list[dict], temperature: float = 0.7) -> str:
     return ""
 
 
+import time
+
+
 def _call_openrouter(model: str, messages: list[dict], temperature: float) -> str:
-    """Call a single OpenRouter model and return response text."""
+    """Call a single OpenRouter model with retry on 429/5xx errors."""
     payload = json.dumps({
         "model": model,
         "messages": messages,
@@ -61,37 +64,49 @@ def _call_openrouter(model: str, messages: list[dict], temperature: float) -> st
         },
     }).encode("utf-8")
 
-    req = urllib.request.Request(
-        OPENROUTER_URL,
-        data=payload,
-        headers={
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {OPENROUTER_API_KEY}",
-            "HTTP-Referer": "https://solution-architect.app",
-            "X-Title": "Solution Architect",
-        },
-    )
+    max_retries = 3
+    for attempt in range(max_retries):
+        req = urllib.request.Request(
+            OPENROUTER_URL,
+            data=payload,
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+                "HTTP-Referer": "https://solution-architect.app",
+                "X-Title": "Solution Architect",
+            },
+        )
 
-    try:
-        with urllib.request.urlopen(req, timeout=120) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
-            msg = data.get("choices", [{}])[0].get("message", {})
-            content = msg.get("content", "") or ""
-            # Some models return reasoning instead of content
-            if not content.strip():
-                content = msg.get("reasoning", "") or ""
-            content = _strip_thinking(content)
-            return content.strip()
-    except urllib.error.HTTPError as e:
-        body = e.read().decode("utf-8", errors="replace") if e.fp else ""
-        logger.warning(f"OpenRouter {model} HTTP {e.code}: {body[:200]}")
-        return ""
-    except urllib.error.URLError as e:
-        logger.error(f"OpenRouter connection failed: {e}")
-        return ""
-    except Exception as e:
-        logger.error(f"OpenRouter error: {e}")
-        return ""
+        try:
+            with urllib.request.urlopen(req, timeout=120) as resp:
+                data = json.loads(resp.read().decode("utf-8"))
+                msg = data.get("choices", [{}])[0].get("message", {})
+                content = msg.get("content", "") or ""
+                # Some models return reasoning instead of content
+                if not content.strip():
+                    content = msg.get("reasoning", "") or ""
+                content = _strip_thinking(content)
+                return content.strip()
+        except urllib.error.HTTPError as e:
+            body = e.read().decode("utf-8", errors="replace") if e.fp else ""
+            logger.warning(f"OpenRouter {model} HTTP {e.code} (attempt {attempt+1}): {body[:200]}")
+            # Retry on 429 (rate limit) or 5xx (server error)
+            if e.code in (429, 500, 502, 503) and attempt < max_retries - 1:
+                wait = (attempt + 1) * 2
+                logger.info(f"Retrying {model} in {wait}s...")
+                time.sleep(wait)
+                continue
+            return ""
+        except urllib.error.URLError as e:
+            logger.error(f"OpenRouter connection failed (attempt {attempt+1}): {e}")
+            if attempt < max_retries - 1:
+                time.sleep(2)
+                continue
+            return ""
+        except Exception as e:
+            logger.error(f"OpenRouter error: {e}")
+            return ""
+    return ""
 
 
 import re

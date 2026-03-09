@@ -307,23 +307,19 @@ header h1 { font-size: 15px; font-weight: 600; white-space: nowrap; }
 
 /* Choice selecting state (in progress) */
 .d-choice.selecting {
-  border-color: var(--primary-hover) !important;
-  background: rgba(99,102,241,0.2) !important;
+  border-color: var(--primary) !important;
+  background: linear-gradient(90deg, rgba(99,102,241,0.15) 0%, rgba(99,102,241,0.3) 50%, rgba(99,102,241,0.15) 100%) !important;
+  background-size: 200% 100% !important;
   color: var(--primary-hover) !important;
   opacity: 1 !important;
   pointer-events: none;
-  animation: pulse-select 1.2s ease-in-out infinite;
-}
-.d-choice.selecting::after {
-  content: ''; position: absolute; top: 50%; right: 10px; transform: translateY(-50%);
-  width: 14px; height: 14px; border: 2px solid transparent;
-  border-top-color: var(--primary-hover); border-radius: 50%;
-  animation: spin 0.7s linear infinite;
+  animation: shimmer-select 1.5s ease-in-out infinite;
+  box-shadow: 0 0 0 2px rgba(99,102,241,0.25);
 }
 
-@keyframes pulse-select {
-  0%,100% { box-shadow: 0 0 8px rgba(99,102,241,0.3); }
-  50% { box-shadow: 0 0 20px rgba(99,102,241,0.5); }
+@keyframes shimmer-select {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
 }
 
 /* -- Other Input --------------------------- */
@@ -563,7 +559,7 @@ const LANG = {
     mermaidInstructions2: 'to view the diagram.',
     settings: 'Settings',
     apiUrlLabel: 'Backend API URL',
-    apiUrlHelp: 'Leave empty for local development. For Vercel deployment, enter your tunneled backend URL (e.g., https://abc123.ngrok.io)',
+    apiUrlHelp: 'Leave empty to use same-origin (default). Only needed if backend is hosted separately.',
     languageLabel: 'Language',
     saveSettings: 'Save',
     cancelSettings: 'Cancel',
@@ -639,7 +635,7 @@ const LANG = {
     mermaidInstructions2: '\uC5D0 \uBD99\uC5EC\uB123\uC73C\uBA74 \uB2E4\uC774\uC5B4\uADF8\uB7A8\uC744 \uBCFC \uC218 \uC788\uC2B5\uB2C8\uB2E4.',
     settings: '\uC124\uC815',
     apiUrlLabel: '\uBC31\uC5D4\uB4DC API URL',
-    apiUrlHelp: '\uB85C\uCEEC \uAC1C\uBC1C\uC2DC \uBE44\uC6CC\uB450\uC138\uC694. Vercel \uBC30\uD3EC \uC2DC \uD130\uB110 URL\uC744 \uC785\uB825\uD558\uC138\uC694 (\uC608: https://abc123.ngrok.io)',
+    apiUrlHelp: '\uAE30\uBCF8\uAC12\uC73C\uB85C \uB3D9\uC77C \uC11C\uBC84\uB97C \uC0AC\uC6A9\uD569\uB2C8\uB2E4. \uBC31\uC5D4\uB4DC\uAC00 \uBCC4\uB3C4 \uC11C\uBC84\uC778 \uACBD\uC6B0\uC5D0\uB9CC \uC785\uB825\uD558\uC138\uC694.',
     languageLabel: '\uC5B8\uC5B4',
     saveSettings: '\uC800\uC7A5',
     cancelSettings: '\uCDE8\uC18C',
@@ -697,6 +693,27 @@ function hConn() { return el('div', 'h-conn'); }
 function displayText(n) { return n.metadata?.full_text || n.description || n.label; }
 function escHtml(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
 function isOtherChoice(text) { const t = text.toLowerCase(); return t.includes('other') || t.includes('\uAE30\uD0C0'); }
+
+// -- Fetch with Retry -------------------------------------
+async function fetchRetry(url, options, retries = 2) {
+  for (let i = 0; i <= retries; i++) {
+    try {
+      const res = await fetch(url, options);
+      if (res.ok) return res;
+      if (res.status >= 500 && i < retries) {
+        await new Promise(r => setTimeout(r, (i + 1) * 2000));
+        continue;
+      }
+      return res;
+    } catch (e) {
+      if (i < retries) {
+        await new Promise(r => setTimeout(r, (i + 1) * 2000));
+        continue;
+      }
+      throw e;
+    }
+  }
+}
 
 // -- Settings ---------------------------------------------
 function openSettingsModal() {
@@ -914,7 +931,7 @@ async function startSession() {
   const stepInterval = setInterval(() => { stepIdx = (stepIdx + 1) % steps.length; document.getElementById('loading-step').textContent = steps[stepIdx]; }, 2000);
 
   try {
-    const res = await fetch(API_BASE + '/api/start', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ mode_id: selectedMode, topic, language: currentLang }) });
+    const res = await fetchRetry(API_BASE + '/api/start', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ mode_id: selectedMode, topic, language: currentLang }) });
     if (!res.ok) throw new Error(`Server error: ${res.status}`);
     const data = await res.json();
     if (!data.session_id) throw new Error('No session_id in response');
@@ -967,7 +984,7 @@ async function submitAnswer(answer, questionNodeId, choiceEl) {
   document.getElementById('completion-bar').classList.remove('visible');
 
   try {
-    const res = await fetch(API_BASE + '/api/answer', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ session_id: sessionId, answer, question_node_id: questionNodeId || '' }) });
+    const res = await fetchRetry(API_BASE + '/api/answer', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ session_id: sessionId, answer, question_node_id: questionNodeId || '' }) });
     const data = await res.json();
     hideTypingIndicator();
 
@@ -997,7 +1014,7 @@ async function branchFrom(questionNodeId, answer, choiceEl) {
   showTypingIndicator();
 
   try {
-    const res = await fetch(API_BASE + '/api/branch', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ session_id: sessionId, question_node_id: questionNodeId, answer }) });
+    const res = await fetchRetry(API_BASE + '/api/branch', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ session_id: sessionId, question_node_id: questionNodeId, answer }) });
     const data = await res.json();
 
     const branchName = data.branch_name || answer.substring(0, 25);
@@ -1471,7 +1488,7 @@ async function summarizeSection() {
   showTypingIndicator();
 
   try {
-    const res = await fetch(API_BASE + '/api/summarize', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ session_id: sessionId }) });
+    const res = await fetchRetry(API_BASE + '/api/summarize', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ session_id: sessionId }) });
     const data = await res.json();
     hideTypingIndicator();
     if (data.summary) {
@@ -1521,7 +1538,7 @@ async function requestArchitecture() {
   setLoading(true);
   showTypingIndicator();
   try {
-    const res = await fetch(API_BASE + '/api/generate-doc', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ session_id: sessionId, doc_type: 'architecture' }) });
+    const res = await fetchRetry(API_BASE + '/api/generate-doc', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ session_id: sessionId, doc_type: 'architecture' }) });
     const data = await res.json();
     hideTypingIndicator();
     if (data.content) addChatMsg('system', data.content);
@@ -1534,7 +1551,7 @@ async function requestDocumentation() {
   setLoading(true);
   showTypingIndicator();
   try {
-    const res = await fetch(API_BASE + '/api/generate-doc', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ session_id: sessionId, doc_type: 'documentation' }) });
+    const res = await fetchRetry(API_BASE + '/api/generate-doc', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ session_id: sessionId, doc_type: 'documentation' }) });
     const data = await res.json();
     hideTypingIndicator();
     if (data.content) addChatMsg('system', data.content);
@@ -1548,7 +1565,7 @@ async function requestMoreQuestions() {
   showTypingIndicator();
   document.getElementById('completion-bar').classList.remove('visible');
   try {
-    const res = await fetch(API_BASE + '/api/answer', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ session_id: sessionId, answer: 'Continue asking more questions to cover remaining areas', question_node_id: '' }) });
+    const res = await fetchRetry(API_BASE + '/api/answer', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ session_id: sessionId, answer: 'Continue asking more questions to cover remaining areas', question_node_id: '' }) });
     const data = await res.json();
     hideTypingIndicator();
     if (data.question) {
