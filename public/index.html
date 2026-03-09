@@ -204,7 +204,7 @@ header h1 { font-size: 15px; font-weight: 600; white-space: nowrap; }
 .tree-row { display: flex; flex-direction: row; align-items: center; flex-shrink: 0; }
 .h-conn { width: 32px; min-width: 32px; height: 2px; background: var(--border); flex-shrink: 0; }
 .tree-fork { display: flex; flex-direction: column; position: relative; }
-.tree-fork-branch { display: flex; flex-direction: row; align-items: center; position: relative; padding: 8px 0 8px 24px; min-height: 42px; }
+.tree-fork-branch { display: flex; flex-direction: row; align-items: center; position: relative; padding: 4px 0 4px 24px; min-height: 32px; }
 .tree-fork-branch::before { content: ''; position: absolute; left: 0; top: 50%; width: 24px; height: 2px; background: var(--border); }
 .tree-fork-branch::after { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 2px; background: var(--border); }
 .tree-fork-branch:first-child::after { top: 50%; }
@@ -481,6 +481,7 @@ header h1 { font-size: 15px; font-weight: 600; white-space: nowrap; }
       <span class="stat-badge" id="stat-questions">0 answered</span>
       <span class="stat-badge" id="stat-nodes">0 nodes</span>
     </div>
+    <button class="btn btn-primary" id="toolbar-complete-btn" onclick="completeConsultation()" style="padding:6px 14px;font-size:12px;">Complete</button>
     <button class="btn btn-ghost" id="toolbar-summary-btn" onclick="summarizeSection()">Summarize Section</button>
     <button class="btn btn-ghost" id="toolbar-export-btn" onclick="exportSession('json')">Export JSON</button>
     <button class="btn btn-ghost" id="toolbar-mermaid-btn" onclick="exportSession('mermaid')">Mermaid Diagram</button>
@@ -598,6 +599,8 @@ const LANG = {
     zoomIn: 'Zoom in',
     zoomOut: 'Zoom out',
     zoomFit: 'Fit to view',
+    completeBtn: 'Complete',
+    completeConfirm: 'End the consultation and generate a summary?',
   },
   ko: {
     appTitle: '\uC194\uB8E8\uC158 \uC544\uD0A4\uD14D\uD2B8',
@@ -671,6 +674,8 @@ const LANG = {
     zoomIn: '\uD655\uB300',
     zoomOut: '\uCD95\uC18C',
     zoomFit: '\uD654\uBA74\uC5D0 \uB9DE\uCD94\uAE30',
+    completeBtn: '\uC0C1\uB2F4 \uC644\uB8CC',
+    completeConfirm: '\uC0C1\uB2F4\uC744 \uC885\uB8CC\uD558\uACE0 \uC694\uC57D\uC744 \uC0DD\uC131\uD558\uC2DC\uACA0\uC2B5\uB2C8\uAE4C?',
     disconnected: '\uC5F0\uACB0 \uC548\uB428',
   }
 };
@@ -691,6 +696,7 @@ function el(tag, cls) { const e = document.createElement(tag); if (cls) e.classN
 function hConn() { return el('div', 'h-conn'); }
 function displayText(n) { return n.metadata?.full_text || n.description || n.label; }
 function escHtml(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+function isOtherChoice(text) { const t = text.toLowerCase(); return t.includes('other') || t.includes('\uAE30\uD0C0'); }
 
 // -- Settings ---------------------------------------------
 function openSettingsModal() {
@@ -761,6 +767,10 @@ function applyLanguage() {
   if (tbExport) tbExport.textContent = t('exportJson');
   const tbMermaid = document.getElementById('toolbar-mermaid-btn');
   if (tbMermaid) tbMermaid.textContent = t('mermaidDiagram');
+
+  // Update complete button
+  const tbComplete = document.getElementById('toolbar-complete-btn');
+  if (tbComplete) tbComplete.textContent = t('completeBtn');
 
   // Update completion bar
   const completionText = document.getElementById('completion-text');
@@ -1177,7 +1187,7 @@ function renderNodeH(nodeId, nodeMap, childMap, currentNodeId) {
       const branch = el('div', 'tree-fork-branch');
       const btn = el('div', 'd-choice');
       btn.textContent = choice;
-      if (choice.toLowerCase().includes('other')) {
+      if (isOtherChoice(choice)) {
         btn.onclick = () => expandOther(btn, (text, el) => submitAnswer(text, nodeId, el));
       } else {
         btn.onclick = () => { collapseAllOtherInputs(); submitAnswer(choice, nodeId, btn); };
@@ -1212,7 +1222,7 @@ function renderNodeH(nodeId, nodeMap, childMap, currentNodeId) {
       } else {
         choiceEl.classList.add('skipped');
         const choiceText = child.metadata?.full_text || child.label;
-        if (choiceText.toLowerCase().includes('other')) {
+        if (isOtherChoice(choiceText)) {
           choiceEl.onclick = () => expandOther(choiceEl, (text, el) => branchFrom(nodeId, text, el));
         } else {
           choiceEl.onclick = () => { collapseAllOtherInputs(); branchFrom(nodeId, choiceText, choiceEl); };
@@ -1442,6 +1452,13 @@ function updateStats(stats) {
   if (!stats) return;
   document.getElementById('stat-questions').textContent = `${stats.questions_answered || 0} ${t('answered')}`;
   document.getElementById('stat-nodes').textContent = `${stats.total_nodes || 0} ${t('nodes')}`;
+}
+
+async function completeConsultation() {
+  if (!sessionId || isLoading) return;
+  if (!confirm(t('completeConfirm'))) return;
+  document.getElementById('completion-bar').classList.add('visible');
+  await summarizeSection();
 }
 
 async function summarizeSection() {

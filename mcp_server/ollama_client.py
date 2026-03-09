@@ -248,26 +248,50 @@ def generate_question(
             print(f"[QGen] Placeholder question detected: {q_text!r}, retrying", flush=True)
             continue
 
-        # Reject duplicate questions (fuzzy match against history)
+        # Reject duplicate questions (fuzzy + keyword overlap)
         q_lower = q_text.lower().strip()
+        # Extract key words (3+ chars) for overlap check
+        q_words = set(w for w in re.findall(r'\w{3,}', q_lower) if w not in (
+            'the', 'and', 'for', 'are', 'how', 'what', 'which', 'your', 'you',
+            'this', 'that', 'with', 'from', 'have', 'will', 'about', 'would',
+            'does', 'any', 'etc', 'specify', 'other', 'prefer',
+        ))
         is_dup = False
         for prev in qa_history:
             prev_q = prev.get("question", "").lower().strip()
-            # Check exact match or high overlap
+            # Exact or prefix match
             if q_lower == prev_q or (len(q_lower) > 20 and q_lower[:40] == prev_q[:40]):
                 is_dup = True
                 break
+            # Keyword overlap: if 60%+ of key words match, likely duplicate
+            prev_words = set(w for w in re.findall(r'\w{3,}', prev_q) if w not in (
+                'the', 'and', 'for', 'are', 'how', 'what', 'which', 'your', 'you',
+                'this', 'that', 'with', 'from', 'have', 'will', 'about', 'would',
+                'does', 'any', 'etc', 'specify', 'other', 'prefer',
+            ))
+            if q_words and prev_words:
+                overlap = len(q_words & prev_words) / min(len(q_words), len(prev_words))
+                if overlap >= 0.6:
+                    is_dup = True
+                    break
         if is_dup:
             print(f"[QGen] Duplicate question detected, retrying: {q_text[:60]}", flush=True)
             continue
 
-        # Ensure choices exist, are real, and have "Other" option
+        # Ensure choices exist and are real
         choices = parsed.get("choices", [])
         choices = [c for c in choices if c.strip() not in ("...", "Choice A", "Choice B", "Choice C", "")]
         if not choices:
-            choices = ["Yes", "No", "Other (specify)"]
-        if not any("other" in c.lower() for c in choices):
-            choices.append("Other (specify)")
+            if language == "ko":
+                choices = ["예", "아니오", "기타 (직접 입력)"]
+            else:
+                choices = ["Yes", "No", "Other (specify)"]
+
+        # Add "Other" option if missing — use language-appropriate text
+        other_keywords = ("other", "기타", "직접", "specify")
+        has_other = any(any(kw in c.lower() for kw in other_keywords) for c in choices)
+        if not has_other:
+            choices.append("기타 (직접 입력)" if language == "ko" else "Other (specify)")
 
         return {
             "question": q_text,
