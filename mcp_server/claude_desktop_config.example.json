@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "solution-architect": {
+      "command": "python",
+      "args": ["-m", "mcp_server.server"],
+      "cwd": "C:\\Users\\po\\Documents\\my_project\\solution_architect",
+      "env": {}
+    }
+  }
+}

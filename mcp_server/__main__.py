@@ -1,0 +1,5 @@
+"""Entry point for running as `python -m mcp_server`."""
+
+from mcp_server.server import mcp
+
+mcp.run(transport="stdio")
