@@ -905,7 +905,9 @@ async function startSession() {
 
   try {
     const res = await fetch(API_BASE + '/api/start', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ mode_id: selectedMode, topic, language: currentLang }) });
+    if (!res.ok) throw new Error(`Server error: ${res.status}`);
     const data = await res.json();
+    if (!data.session_id) throw new Error('No session_id in response');
     sessionId = data.session_id;
     clearInterval(stepInterval);
     document.getElementById('start-screen').style.display = 'none';
@@ -925,7 +927,16 @@ async function startSession() {
     }
     renderDiagram(data.diagram);
     updateStats(data.diagram?.stats);
-  } catch (e) { clearInterval(stepInterval); loadingEl.classList.remove('visible'); document.getElementById('topic-form').classList.add('visible'); addChatMsg('system', t('errorPrefix') + ': ' + e.message); }
+  } catch (e) {
+    clearInterval(stepInterval);
+    loadingEl.classList.remove('visible');
+    document.getElementById('mode-grid').style.display = 'grid';
+    document.getElementById('topic-form').classList.add('visible');
+    document.querySelector('#start-screen > p').style.display = '';
+    document.getElementById('loading-text').textContent = t('errorPrefix') + ': ' + e.message;
+    console.error('startSession failed:', e);
+    alert(t('errorPrefix') + ': ' + e.message);
+  }
   setLoading(false);
   document.getElementById('start-btn').disabled = false;
 }
