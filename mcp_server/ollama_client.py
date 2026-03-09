@@ -398,3 +398,57 @@ def generate_summary(
         return None
 
     return _parse_json_from_response(response)
+
+
+DOC_SYSTEM_TEMPLATES = {
+    "architecture": """You are a solution architect. Based on the consultation Q&A below, generate a system architecture document.
+
+Include these sections:
+1. **System Overview** — High-level description and goals
+2. **Architecture Diagram Description** — Components and their interactions (describe in text)
+3. **Technology Stack** — Recommended technologies with justification
+4. **Data Flow** — How data moves through the system
+5. **Key Design Decisions** — Major architectural choices and trade-offs
+6. **Scalability Considerations** — How the system handles growth
+7. **Security Architecture** — Authentication, authorization, data protection
+
+Format using markdown. Be specific and actionable based on the consultation answers.""",
+
+    "documentation": """You are a technical writer. Based on the consultation Q&A below, generate comprehensive project documentation.
+
+Include these sections:
+1. **Project Overview** — Purpose, scope, and objectives
+2. **Requirements Summary** — Functional and non-functional requirements
+3. **System Components** — Detailed description of each component
+4. **Integration Points** — External systems and APIs
+5. **Deployment Strategy** — Infrastructure and deployment approach
+6. **Risk Assessment** — Identified risks and mitigations
+7. **Timeline & Milestones** — Suggested project phases
+8. **Success Criteria** — How to measure project success
+
+Format using markdown. Be thorough and reference specific answers from the consultation.""",
+}
+
+
+def generate_doc(
+    topic: str,
+    qa_history: list[dict],
+    doc_type: str = "architecture",
+    language: str = "en",
+) -> str:
+    """Generate architecture or documentation from consultation Q&A."""
+    system_prompt = DOC_SYSTEM_TEMPLATES.get(doc_type, DOC_SYSTEM_TEMPLATES["architecture"])
+    lang_directive = LANGUAGE_DIRECTIVES.get(language, "")
+
+    messages = [{"role": "system", "content": system_prompt + lang_directive}]
+
+    context_parts = [f"Topic: {topic}", "\nConsultation Q&A:"]
+    for qa in qa_history:
+        context_parts.append(f"Q: {qa['question']}")
+        context_parts.append(f"A: {qa['answer']}")
+
+    context_parts.append(f"\nGenerate the {'system architecture' if doc_type == 'architecture' else 'project documentation'} based on the above consultation.")
+    messages.append({"role": "user", "content": "\n".join(context_parts)})
+
+    response = _call_ollama(messages, temperature=0.4)
+    return response or ""

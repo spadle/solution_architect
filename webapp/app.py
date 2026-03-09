@@ -22,6 +22,7 @@ from mcp_server.diagram import DiagramGraph
 from mcp_server.modes import get_mode, list_modes
 from mcp_server.ollama_client import (
     generate_branch_name,
+    generate_doc,
     generate_question,
     generate_summary,
     generate_title,
@@ -84,6 +85,11 @@ class BranchRequest(BaseModel):
 
 class SessionIdRequest(BaseModel):
     session_id: str
+
+
+class GenerateDocRequest(BaseModel):
+    session_id: str
+    doc_type: str = "architecture"
 
 
 # ── Pages ─────────────────────────────────────────────────────────────────
@@ -307,6 +313,25 @@ async def api_summarize(req: SessionIdRequest):
         "summary": result,
         "diagram": _build_diagram_response(sid),
     }
+
+
+@app.post("/api/generate-doc")
+async def api_generate_doc(req: GenerateDocRequest):
+    """Generate architecture or documentation from consultation."""
+    sid = req.session_id
+    session = store.get(sid)
+    if not session:
+        raise HTTPException(404, "Session not found")
+
+    topic = _topics.get(sid, session.title)
+    qa_history = _qa.get(sid, [])
+    lang = _languages.get(sid, "en")
+
+    content = await asyncio.to_thread(
+        generate_doc, topic, qa_history, req.doc_type, lang
+    )
+
+    return {"session_id": sid, "content": content, "doc_type": req.doc_type}
 
 
 @app.get("/api/diagram/{session_id}")

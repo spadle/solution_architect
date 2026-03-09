@@ -250,6 +250,26 @@ header h1 { font-size: 15px; font-weight: 600; white-space: nowrap; }
   100% { box-shadow: 0 0 0 0 rgba(99,102,241,0); }
 }
 
+/* -- Post-Summary Actions ------------------- */
+.post-summary-actions {
+  margin: 12px 0; padding: 16px; background: var(--surface2); border-radius: 12px;
+  border: 1px solid var(--border);
+}
+.actions-title {
+  font-size: 13px; font-weight: 600; color: var(--text); margin-bottom: 10px;
+}
+.actions-grid {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 8px;
+}
+.action-btn {
+  display: flex; align-items: center; gap: 8px; padding: 10px 12px;
+  background: var(--bg); border: 1px solid var(--border); border-radius: 8px;
+  color: var(--text); font-size: 12px; cursor: pointer; transition: all 0.15s;
+  text-align: left;
+}
+.action-btn:hover { border-color: var(--primary); background: rgba(99,102,241,0.08); color: var(--primary); }
+.action-btn svg { width: 18px; height: 18px; flex-shrink: 0; stroke: var(--primary); }
+
 /* -- Choice Nodes -------------------------- */
 .d-choice {
   background: var(--surface); border: 2px solid var(--border); border-radius: 10px;
@@ -530,6 +550,12 @@ const LANG = {
     noApiUrl: 'No backend API URL configured. Click the gear icon to set your backend URL.',
     connected: 'Connected',
     disconnected: 'Not connected',
+    nextStepsTitle: 'What would you like to do next?',
+    actionArchitecture: 'Show System Architecture',
+    actionDocumentation: 'Generate Detailed Documentation',
+    actionMoreQuestions: 'Ask More Questions',
+    actionExportAll: 'Export Full Session',
+    actionNewBranch: 'Explore Alternative Branch',
   },
   ko: {
     appTitle: '\uC194\uB8E8\uC158 \uC544\uD0A4\uD14D\uD2B8',
@@ -589,6 +615,12 @@ const LANG = {
     session: '\uC138\uC158',
     noApiUrl: '\uBC31\uC5D4\uB4DC API URL\uC774 \uC124\uC815\uB418\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4. \uD1B1\uB2C8\uBC14\uD034 \uC544\uC774\uCF58\uC744 \uD074\uB9AD\uD558\uC5EC \uBC31\uC5D4\uB4DC URL\uC744 \uC124\uC815\uD558\uC138\uC694.',
     connected: '\uC5F0\uACB0\uB428',
+    nextStepsTitle: '\uB2E4\uC74C\uC73C\uB85C \uBB34\uC5C7\uC744 \uD558\uC2DC\uACA0\uC2B5\uB2C8\uAE4C?',
+    actionArchitecture: '\uC2DC\uC2A4\uD15C \uC544\uD0A4\uD14D\uCC98 \uBCF4\uAE30',
+    actionDocumentation: '\uC0C1\uC138 \uBB38\uC11C \uC0DD\uC131',
+    actionMoreQuestions: '\uCD94\uAC00 \uC9C8\uBB38\uD558\uAE30',
+    actionExportAll: '\uC804\uCCB4 \uC138\uC158 \uB0B4\uBCF4\uB0B4\uAE30',
+    actionNewBranch: '\uB300\uCCB4 \uBD84\uAE30 \uD0D0\uC0C9',
     disconnected: '\uC5F0\uACB0 \uC548\uB428',
   }
 };
@@ -763,10 +795,13 @@ function toggleChat() {
   const panel = document.getElementById('chat-panel');
   const icon = document.getElementById('collapse-icon');
   if (chatCollapsed) {
+    panel._lastWidth = panel.style.width || '';
+    panel.style.width = '';
     panel.classList.add('collapsed');
     icon.setAttribute('points', '9 18 15 12 9 6');
   } else {
     panel.classList.remove('collapsed');
+    if (panel._lastWidth) panel.style.width = panel._lastWidth;
     icon.setAttribute('points', '15 18 9 12 15 6');
   }
 }
@@ -1307,13 +1342,92 @@ async function summarizeSection() {
     const res = await fetch(API_BASE + '/api/summarize', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ session_id: sessionId }) });
     const data = await res.json();
     hideTypingIndicator();
-    if (data.summary) addChatMsg('system', t('sectionSummary') + ':\n' + (data.summary.summary || '') + '\n\n' + t('keyDecisions') + ': ' + (data.summary.key_decisions || []).join(', '));
+    if (data.summary) {
+      addChatMsg('system', t('sectionSummary') + ':\n' + (data.summary.summary || '') + '\n\n' + t('keyDecisions') + ': ' + (data.summary.key_decisions || []).join(', '));
+      showPostSummaryActions();
+    }
     renderDiagram(data.diagram);
   } catch (e) { hideTypingIndicator(); addChatMsg('system', t('errorPrefix') + ': ' + e.message); }
 
   btns.forEach(b => { if (b) { b.classList.remove('btn-loading'); } });
   if (btns[0]) btns[0].innerHTML = t('generateSummary');
   if (btns[1]) btns[1].innerHTML = t('summarizeSection');
+  setLoading(false);
+}
+
+function showPostSummaryActions() {
+  const container = document.getElementById('chat-messages');
+  const actionsDiv = document.createElement('div');
+  actionsDiv.className = 'post-summary-actions';
+  actionsDiv.innerHTML = `
+    <div class="actions-title">${escHtml(t('nextStepsTitle'))}</div>
+    <div class="actions-grid">
+      <button class="action-btn" onclick="requestArchitecture()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><line x1="17.5" y1="14" x2="17.5" y2="21"/><line x1="14" y1="17.5" x2="21" y2="17.5"/></svg>
+        ${escHtml(t('actionArchitecture'))}
+      </button>
+      <button class="action-btn" onclick="requestDocumentation()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+        ${escHtml(t('actionDocumentation'))}
+      </button>
+      <button class="action-btn" onclick="requestMoreQuestions()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+        ${escHtml(t('actionMoreQuestions'))}
+      </button>
+      <button class="action-btn" onclick="exportSession('json')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+        ${escHtml(t('actionExportAll'))}
+      </button>
+    </div>
+  `;
+  container.appendChild(actionsDiv);
+  container.scrollTop = container.scrollHeight;
+}
+
+async function requestArchitecture() {
+  if (!sessionId || isLoading) return;
+  setLoading(true);
+  showTypingIndicator();
+  try {
+    const res = await fetch(API_BASE + '/api/generate-doc', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ session_id: sessionId, doc_type: 'architecture' }) });
+    const data = await res.json();
+    hideTypingIndicator();
+    if (data.content) addChatMsg('system', data.content);
+  } catch (e) { hideTypingIndicator(); addChatMsg('system', t('errorPrefix') + ': ' + e.message); }
+  setLoading(false);
+}
+
+async function requestDocumentation() {
+  if (!sessionId || isLoading) return;
+  setLoading(true);
+  showTypingIndicator();
+  try {
+    const res = await fetch(API_BASE + '/api/generate-doc', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ session_id: sessionId, doc_type: 'documentation' }) });
+    const data = await res.json();
+    hideTypingIndicator();
+    if (data.content) addChatMsg('system', data.content);
+  } catch (e) { hideTypingIndicator(); addChatMsg('system', t('errorPrefix') + ': ' + e.message); }
+  setLoading(false);
+}
+
+async function requestMoreQuestions() {
+  if (!sessionId || isLoading) return;
+  setLoading(true);
+  showTypingIndicator();
+  document.getElementById('completion-bar').classList.remove('visible');
+  try {
+    const res = await fetch(API_BASE + '/api/answer', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ session_id: sessionId, answer: 'Continue asking more questions to cover remaining areas', question_node_id: '' }) });
+    const data = await res.json();
+    hideTypingIndicator();
+    if (data.question) {
+      addChatMsg('system', data.question.question + '\n\n' + t('clickChoiceShort'), data.question.reasoning, data.question.category);
+    } else {
+      addChatMsg('system', t('branchExplored'));
+      document.getElementById('completion-bar').classList.add('visible');
+    }
+    renderDiagram(data.diagram);
+    updateStats(data.stats || data.diagram?.stats);
+  } catch (e) { hideTypingIndicator(); addChatMsg('system', t('errorPrefix') + ': ' + e.message); }
   setLoading(false);
 }
 
