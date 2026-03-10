@@ -151,8 +151,9 @@ def _strip_thinking(text: str) -> str:
 
 def _is_placeholder_json(obj: dict) -> bool:
     """Check if parsed JSON is just the template/placeholder example."""
-    q = obj.get("question", "")
-    return q.strip() in ("...", "", "The question text to ask the user")
+    q = obj.get("question", "").strip().lower()
+    return q in ("...", "", "the question text to ask the user",
+                 "what is your preferred wedding venue type?")
 
 
 def _parse_json_from_response(text: str) -> dict | None:
@@ -210,14 +211,16 @@ QUESTION_GEN_SYSTEM = """You are a consultation assistant conducting a thorough 
 
 CRITICAL: You must ALWAYS generate a question. NEVER refuse, summarize, or say the consultation is complete. There are ALWAYS more aspects to explore. You must ask AT LEAST 8-15 questions per consultation to cover all areas properly.
 
-You MUST respond with ONLY a JSON object in this exact format, no other text:
+You MUST respond with ONLY a JSON object. Here is an example for a wedding planning consultation:
 
 {
-  "question": "The question text to ask the user",
-  "choices": ["Choice A", "Choice B", "Choice C", "Other (specify)"],
-  "category": "short category name",
-  "reasoning": "Why this question matters"
+  "question": "What is your preferred wedding venue type?",
+  "choices": ["Indoor banquet hall", "Outdoor garden", "Beach ceremony", "Church or chapel", "Other (specify)"],
+  "category": "venue",
+  "reasoning": "The venue type determines catering options, guest capacity, and weather contingencies"
 }
+
+IMPORTANT: The choices must be FULL DESCRIPTIVE TEXT, not single letters. Each choice should be a complete phrase that clearly describes the option.
 
 RULES:
 - ALWAYS generate a question — never stop, never summarize, never say "done"
@@ -260,9 +263,14 @@ def generate_question(
             context_parts.append(f"Q: {qa['question']}")
             context_parts.append(f"A: {qa['answer']}")
 
+    if q_count < 8:
+        areas_hint = "\nYou have only asked {0} question(s). You MUST continue asking. Areas to explore: requirements, constraints, scale, technology, security, budget, timeline, integrations, user experience, deployment.".format(q_count)
+    else:
+        areas_hint = ""
+
     context_parts.append(
-        f"\n{q_count} questions asked so far. Explore a NEW uncovered area — do NOT repeat previous topics.\n"
-        "Generate the next question. It MUST be different from all previous questions. Respond with ONLY a JSON object."
+        f"\n{q_count} questions asked so far.{areas_hint}\n"
+        "Generate the NEXT question about a NEW uncovered area. Respond with ONLY a JSON object, no other text."
     )
 
     messages.append({"role": "user", "content": "\n".join(context_parts)})
@@ -331,7 +339,19 @@ def generate_question(
 
         # Ensure choices exist and are real
         choices = parsed.get("choices", [])
-        choices = [c for c in choices if c.strip() not in ("...", "Choice A", "Choice B", "Choice C", "")]
+        # Strip "A) " or "1. " prefixes that some models add
+        cleaned_choices = []
+        for c in choices:
+            c = c.strip()
+            # Remove letter/number prefixes like "A) ", "A. ", "1. ", "1) "
+            c = re.sub(r'^[A-Da-d1-5][\.\)]\s*', '', c).strip()
+            cleaned_choices.append(c)
+        choices = cleaned_choices
+        # Filter out placeholders, single letters, and empty strings
+        placeholder_set = {"...", "choice a", "choice b", "choice c", "choice d",
+                          "a", "b", "c", "d", "option a", "option b", "option c",
+                          "the question text to ask the user", ""}
+        choices = [c for c in choices if c.strip().lower() not in placeholder_set and len(c.strip()) > 1]
         if not choices:
             if language == "ko":
                 choices = ["예", "아니오", "기타 (직접 입력)"]
@@ -351,7 +371,29 @@ def generate_question(
             "reasoning": parsed.get("reasoning", ""),
         }
 
-    print("[QGen] All 5 attempts failed", flush=True)
+    # Last resort: if we're early in the consultation, try a minimal prompt
+    if q_count < 8:
+        print(f"[QGen] All 5 attempts failed, trying minimal fallback (q_count={q_count})", flush=True)
+        fallback_prompt = (
+            f"Topic: {topic}\nAsk ONE clarifying question about this topic. "
+            f"Return ONLY JSON: {{\"question\": \"...\", \"choices\": [\"opt1\", \"opt2\", \"opt3\", \"Other (specify)\"], \"category\": \"general\", \"reasoning\": \"...\"}}"
+        )
+        response = _call_llm([{"role": "user", "content": fallback_prompt}], temperature=0.5)
+        if response:
+            parsed = _parse_json_from_response(response)
+            if parsed and parsed.get("question") and len(parsed["question"]) > 5:
+                choices = parsed.get("choices", ["Yes", "No", "Other (specify)"])
+                choices = [c for c in choices if len(c.strip()) > 1]
+                if not choices:
+                    choices = ["Yes", "No", "Other (specify)"]
+                return {
+                    "question": parsed["question"],
+                    "choices": choices,
+                    "category": parsed.get("category", "general"),
+                    "reasoning": parsed.get("reasoning", ""),
+                }
+
+    print("[QGen] All attempts failed", flush=True)
     return None
 
 
