@@ -102,6 +102,18 @@ async def index():
 
 # ── API ───────────────────────────────────────────────────────────────────
 
+@app.get("/api/health")
+async def api_health():
+    import os
+    key = os.environ.get("OPENROUTER_API_KEY", "")
+    return {
+        "status": "ok",
+        "api_key_set": bool(key),
+        "api_key_prefix": key[:12] + "..." if key else "",
+        "vercel": bool(os.environ.get("VERCEL")),
+    }
+
+
 @app.get("/api/modes")
 async def api_modes(language: str = "en"):
     return list_modes(language=language)
