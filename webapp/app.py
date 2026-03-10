@@ -114,33 +114,6 @@ async def api_health():
     }
 
 
-@app.get("/api/test-llm")
-async def api_test_llm():
-    """Debug endpoint: test a minimal LLM call and return raw result or error."""
-    import os, urllib.request, urllib.error, json as _json, traceback
-    key = os.environ.get("OPENROUTER_API_KEY", "")
-    if not key:
-        return {"error": "No API key"}
-    payload = _json.dumps({
-        "model": "openrouter/free",
-        "messages": [{"role": "user", "content": "Say hello in one word."}],
-        "max_tokens": 20,
-    }).encode("utf-8")
-    req = urllib.request.Request(
-        "https://openrouter.ai/api/v1/chat/completions",
-        data=payload,
-        headers={
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {key}",
-        },
-    )
-    try:
-        with urllib.request.urlopen(req, timeout=30) as resp:
-            data = _json.loads(resp.read().decode("utf-8"))
-            return {"ok": True, "response": data}
-    except Exception as e:
-        return {"ok": False, "error": str(e), "traceback": traceback.format_exc()}
-
 
 @app.get("/api/modes")
 async def api_modes(language: str = "en"):
