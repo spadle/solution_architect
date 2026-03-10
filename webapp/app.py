@@ -52,6 +52,22 @@ _qa: dict[str, list[dict]] = {}
 _languages: dict[str, str] = {}
 
 
+def _restore_state(sid: str):
+    """Restore in-memory session state from SQLite (handles serverless cold starts)."""
+    if sid in _topics:
+        return  # Already in memory
+    session = store.get(sid)
+    if not session:
+        return
+    try:
+        meta = json.loads(session.conversation_summary) if session.conversation_summary else {}
+    except (json.JSONDecodeError, TypeError):
+        meta = {}
+    _topics[sid] = meta.get("topic", session.title)
+    _qa[sid] = meta.get("qa", [])
+    _languages[sid] = meta.get("language", "en")
+
+
 def _get_graph(sid: str) -> DiagramGraph:
     if sid not in _diagrams:
         loaded = store.load_diagram(sid)
@@ -60,8 +76,16 @@ def _get_graph(sid: str) -> DiagramGraph:
 
 
 def _save(sid: str):
+    # Persist diagram
     if sid in _diagrams:
         store.save_diagram(sid, _diagrams[sid])
+    # Persist session metadata (qa, topic, language) for serverless cold starts
+    meta = json.dumps({
+        "topic": _topics.get(sid, ""),
+        "qa": _qa.get(sid, []),
+        "language": _languages.get(sid, "en"),
+    })
+    store.update_summary(sid, meta)
 
 
 # ── Models ────────────────────────────────────────────────────────────────
@@ -198,6 +222,7 @@ async def api_answer(req: AnswerRequest):
     if not session:
         raise HTTPException(404, "Session not found")
 
+    _restore_state(sid)
     graph = _get_graph(sid)
     mode = get_mode(session.mode_id)
 
@@ -251,6 +276,7 @@ async def api_branch(req: BranchRequest):
     if not session:
         raise HTTPException(404, "Session not found")
 
+    _restore_state(sid)
     graph = _get_graph(sid)
     mode = get_mode(session.mode_id)
 
@@ -308,6 +334,7 @@ async def api_summarize(req: SessionIdRequest):
     if not session:
         raise HTTPException(404, "Session not found")
 
+    _restore_state(sid)
     topic = _topics.get(sid, session.title)
     qa_history = _qa.get(sid, [])
     graph = _get_graph(sid)
@@ -337,6 +364,7 @@ async def api_generate_doc(req: GenerateDocRequest):
     if not session:
         raise HTTPException(404, "Session not found")
 
+    _restore_state(sid)
     topic = _topics.get(sid, session.title)
     qa_history = _qa.get(sid, [])
     lang = _languages.get(sid, "en")
@@ -359,6 +387,7 @@ async def api_export(session_id: str, format: str = "json"):
     session = store.get(session_id)
     if not session:
         raise HTTPException(404, "Session not found")
+    _restore_state(session_id)
     graph = _get_graph(session_id)
 
     if format == "mermaid":
