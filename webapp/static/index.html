@@ -188,7 +188,7 @@ header h1 { font-size: 15px; font-weight: 600; white-space: nowrap; }
 #chat-input-area textarea:focus { border-color: var(--primary); }
 
 /* -- Diagram Panel ------------------------- */
-#diagram-panel { flex: 1; overflow: hidden; position: relative; background: var(--bg); cursor: grab; }
+#diagram-panel { flex: 1; overflow: hidden; position: relative; background: var(--bg); cursor: grab; touch-action: none; }
 #diagram-panel.panning { cursor: grabbing; }
 
 #diagram-container {
@@ -1381,6 +1381,7 @@ function closeModal() {
     const dp = document.getElementById('diagram-panel');
     if (!dp) return;
 
+    // -- Mouse pan --
     dp.addEventListener('mousedown', (e) => {
       if (e.target.closest('.d-choice') || e.target.closest('.other-input') || e.target.closest('.other-submit')) return;
       isPanning = true;
@@ -1400,7 +1401,45 @@ function closeModal() {
 
     document.addEventListener('mouseup', () => { if (isPanning) { isPanning = false; dp.classList.remove('panning'); document.getElementById('diagram-container').classList.remove('no-transition'); } });
 
-    // Mouse wheel zoom
+    // -- Touch pan + pinch zoom --
+    let touchStartDist = 0, touchStartZoom = 1;
+
+    dp.addEventListener('touchstart', (e) => {
+      if (e.target.closest('.d-choice') || e.target.closest('.other-input') || e.target.closest('.other-submit')) return;
+      if (e.touches.length === 1) {
+        isPanning = true;
+        startX = e.touches[0].clientX; startY = e.touches[0].clientY;
+        startPanX = panX; startPanY = panY;
+        dp.classList.add('panning');
+        document.getElementById('diagram-container').classList.add('no-transition');
+      } else if (e.touches.length === 2) {
+        isPanning = false;
+        touchStartDist = Math.hypot(e.touches[1].clientX - e.touches[0].clientX, e.touches[1].clientY - e.touches[0].clientY);
+        touchStartZoom = zoomLevel;
+      }
+    }, { passive: true });
+
+    dp.addEventListener('touchmove', (e) => {
+      if (e.touches.length === 1 && isPanning) {
+        e.preventDefault();
+        panX = startPanX + (e.touches[0].clientX - startX);
+        panY = startPanY + (e.touches[0].clientY - startY);
+        applyPan(false);
+      } else if (e.touches.length === 2 && touchStartDist > 0) {
+        e.preventDefault();
+        const dist = Math.hypot(e.touches[1].clientX - e.touches[0].clientX, e.touches[1].clientY - e.touches[0].clientY);
+        const newZoom = Math.min(2, Math.max(0.3, touchStartZoom * (dist / touchStartDist)));
+        zoomLevel = newZoom;
+        applyTransform(false);
+      }
+    }, { passive: false });
+
+    dp.addEventListener('touchend', () => {
+      if (isPanning) { isPanning = false; dp.classList.remove('panning'); document.getElementById('diagram-container').classList.remove('no-transition'); }
+      touchStartDist = 0;
+    });
+
+    // -- Mouse wheel zoom --
     dp.addEventListener('wheel', (e) => {
       e.preventDefault();
       const delta = e.deltaY > 0 ? -0.08 : 0.08;
