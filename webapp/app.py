@@ -42,7 +42,8 @@ app.add_middleware(
 )
 
 STATIC_DIR = Path(__file__).parent / "static"
-app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+if STATIC_DIR.is_dir():
+    app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
 store = SessionStore()
 _diagrams: dict[str, DiagramGraph] = {}

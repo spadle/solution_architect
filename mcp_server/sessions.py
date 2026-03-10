@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import sqlite3
 from dataclasses import dataclass
 from datetime import datetime
@@ -12,7 +13,8 @@ from uuid import uuid4
 
 from mcp_server.diagram import DiagramGraph
 
-DB_PATH = Path(__file__).parent / "sessions.db"
+_default_db = Path("/tmp/sessions.db") if os.environ.get("VERCEL") else Path(__file__).parent / "sessions.db"
+DB_PATH = _default_db
 
 
 @dataclass
