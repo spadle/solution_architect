@@ -541,6 +541,7 @@ def generate_summary(
 
 
 DOC_SYSTEM_TEMPLATES = {
+    # ── Software / Tech modes ────────────────────────────────
     "architecture": """You are a solution architect. Based on the consultation Q&A below, generate a system architecture document.
 
 Include these sections:
@@ -567,6 +568,191 @@ Include these sections:
 8. **Success Criteria** — How to measure project success
 
 Format using markdown. Be thorough and reference specific answers from the consultation.""",
+
+    # ── Wedding Planner ──────────────────────────────────────
+    "wedding_plan": """You are an experienced wedding planner. Based on the consultation Q&A below, generate a comprehensive wedding plan.
+
+Include these sections:
+1. **Wedding Overview** — Theme, style, and overall vision
+2. **Budget Breakdown** — Estimated allocation per category (venue, catering, attire, photography, flowers, music, decor, etc.) with percentages
+3. **Venue & Date** — Recommended venue type, layout considerations, date/season notes
+4. **Guest Experience** — Ceremony flow, reception plan, seating considerations
+5. **Vendor Checklist** — List of vendors needed with priority and estimated costs
+6. **Day-of Timeline** — Hour-by-hour schedule from preparation to send-off
+7. **Planning Milestones** — Month-by-month countdown checklist
+
+Format using markdown. Be specific based on the couple's answers.""",
+
+    "wedding_budget": """You are a wedding budget specialist. Based on the consultation Q&A below, generate a detailed budget breakdown.
+
+Include these sections:
+1. **Total Budget Summary** — Overview with total and per-guest cost
+2. **Category Breakdown** — Detailed line items for: Venue, Catering & Bar, Photography/Video, Flowers & Decor, Music/DJ, Wedding Attire, Cake & Desserts, Stationery, Transportation, Gifts & Favors, Miscellaneous
+3. **Priority Allocation** — Must-haves vs nice-to-haves based on their preferences
+4. **Cost-Saving Tips** — Specific suggestions based on their choices
+5. **Payment Timeline** — When deposits and payments are typically due
+
+Format using markdown with actual estimated dollar amounts where possible.""",
+
+    # ── Product Launch ───────────────────────────────────────
+    "launch_plan": """You are a product launch strategist. Based on the consultation Q&A below, generate a comprehensive launch plan.
+
+Include these sections:
+1. **Product Positioning** — Value proposition, key differentiators, messaging framework
+2. **Target Audience** — Primary personas, segments, pain points addressed
+3. **Go-to-Market Strategy** — Channels, tactics, partnerships, pricing strategy
+4. **Launch Timeline** — Pre-launch (8-12 weeks), launch week, post-launch phases
+5. **Content & Marketing Plan** — Content calendar, PR strategy, social media plan
+6. **Success Metrics & KPIs** — Targets for first 30/60/90 days
+7. **Risk Mitigation** — Potential issues and contingency plans
+
+Format using markdown. Be actionable and specific.""",
+
+    "launch_checklist": """You are a product launch coordinator. Based on the consultation Q&A below, generate a detailed launch checklist.
+
+Include these sections:
+1. **Pre-Launch Checklist** — Everything to complete before launch day
+2. **Launch Day Checklist** — Hour-by-hour activities for launch day
+3. **Post-Launch Checklist** — Follow-up actions for the first week
+4. **Marketing Assets Needed** — List of all content and materials to prepare
+5. **Team Responsibilities** — Who does what and when
+
+Format as actionable checklists with checkboxes (- [ ]).""",
+
+    # ── Event Planning ───────────────────────────────────────
+    "event_plan": """You are a professional event planner. Based on the consultation Q&A below, generate a comprehensive event plan.
+
+Include these sections:
+1. **Event Overview** — Concept, goals, target audience, expected outcomes
+2. **Budget Breakdown** — Estimated allocation per category
+3. **Venue & Logistics** — Layout, A/V requirements, accessibility, parking
+4. **Program Schedule** — Detailed agenda with timing
+5. **Vendor & Service Providers** — Caterers, A/V, decor, entertainment, staffing
+6. **Promotion Plan** — How to attract and register attendees
+7. **Day-of Run Sheet** — Minute-by-minute operations plan
+8. **Post-Event Follow-up** — Feedback collection, thank-yous, reporting
+
+Format using markdown. Be specific based on their answers.""",
+
+    "event_budget": """You are an event budget specialist. Based on the consultation Q&A below, generate a detailed event budget.
+
+Include these sections:
+1. **Total Budget Summary** — Overview with per-attendee cost
+2. **Category Breakdown** — Venue, Catering, A/V & Tech, Decor, Entertainment, Marketing, Staffing, Insurance, Miscellaneous
+3. **Revenue Projections** — If applicable (ticket sales, sponsorships)
+4. **Cost-Saving Opportunities** — Based on their preferences
+5. **Contingency Budget** — 10-15% reserve recommendations
+
+Format using markdown with estimated amounts.""",
+
+    # ── Business Strategy ────────────────────────────────────
+    "strategy_plan": """You are a business strategy consultant. Based on the consultation Q&A below, generate a comprehensive strategy document.
+
+Include these sections:
+1. **Executive Summary** — Business vision and strategic direction
+2. **Market Analysis** — Market size, trends, opportunities, threats (SWOT)
+3. **Competitive Positioning** — Key competitors, differentiation strategy
+4. **Business Model** — Revenue streams, cost structure, value chain
+5. **Growth Strategy** — Customer acquisition, expansion plans, partnerships
+6. **Execution Roadmap** — Quarterly milestones for the next 12 months
+7. **Resource Requirements** — Team, technology, funding needs
+8. **Risk Assessment** — Key risks and mitigation strategies
+
+Format using markdown. Ground recommendations in the consultation answers.""",
+
+    "action_plan": """You are a business execution coach. Based on the consultation Q&A below, generate a prioritized action plan.
+
+Include these sections:
+1. **Immediate Actions (This Week)** — Quick wins and urgent items
+2. **Short-term Goals (30 Days)** — Key milestones to hit
+3. **Medium-term Goals (90 Days)** — Growth targets and infrastructure
+4. **Long-term Vision (12 Months)** — Strategic objectives
+5. **Key Decisions Needed** — Open questions that need resolution
+6. **Resource Allocation** — Where to focus time and money first
+
+Format as actionable items with clear owners and deadlines where possible.""",
+
+    # ── Q&A Helper / Generic ─────────────────────────────────
+    "analysis": """You are an expert analyst. Based on the consultation Q&A below, generate a comprehensive analysis document.
+
+Include these sections:
+1. **Problem Statement** — Clear definition of the question/problem
+2. **Context & Background** — Relevant factors and constraints
+3. **Options Analysis** — Pros, cons, and trade-offs of each option discussed
+4. **Recommendation** — Best path forward with reasoning
+5. **Action Items** — Concrete next steps
+6. **Risks & Considerations** — What to watch out for
+
+Format using markdown. Be thorough and reference specific answers.""",
+
+    "summary_report": """You are a professional consultant. Based on the consultation Q&A below, generate a summary report.
+
+Include these sections:
+1. **Overview** — What was discussed and why
+2. **Key Findings** — Main insights from the consultation
+3. **Decisions Made** — Clear list of all decisions and choices
+4. **Recommendations** — Suggested next steps
+5. **Open Items** — Questions that still need answers
+
+Format using markdown. Keep it concise and actionable.""",
+
+    # ── Security Review ──────────────────────────────────────
+    "security_report": """You are a cybersecurity consultant. Based on the consultation Q&A below, generate a security assessment report.
+
+Include these sections:
+1. **Executive Summary** — Overall security posture assessment
+2. **System Overview** — Architecture and data flow from security perspective
+3. **Threat Model** — Identified threats, attack vectors, and risk levels
+4. **Vulnerability Assessment** — Current gaps and weaknesses
+5. **Security Recommendations** — Prioritized remediation steps (Critical/High/Medium/Low)
+6. **Compliance Status** — Regulatory requirements and gaps
+7. **Implementation Roadmap** — Phased security improvement plan
+
+Format using markdown. Prioritize by risk level.""",
+}
+
+# Map each mode to its available doc types (label, doc_type_key, icon_name)
+MODE_DOC_TYPES: dict[str, list[dict]] = {
+    "software_architecture": [
+        {"label": "System Architecture", "doc_type": "architecture", "icon": "grid"},
+        {"label": "Project Documentation", "doc_type": "documentation", "icon": "file-text"},
+    ],
+    "api_design": [
+        {"label": "API Architecture", "doc_type": "architecture", "icon": "grid"},
+        {"label": "API Documentation", "doc_type": "documentation", "icon": "file-text"},
+    ],
+    "data_pipeline": [
+        {"label": "Pipeline Architecture", "doc_type": "architecture", "icon": "grid"},
+        {"label": "Pipeline Documentation", "doc_type": "documentation", "icon": "file-text"},
+    ],
+    "cloud_migration": [
+        {"label": "Migration Architecture", "doc_type": "architecture", "icon": "grid"},
+        {"label": "Migration Plan", "doc_type": "documentation", "icon": "file-text"},
+    ],
+    "security_review": [
+        {"label": "Security Report", "doc_type": "security_report", "icon": "shield"},
+        {"label": "Detailed Documentation", "doc_type": "documentation", "icon": "file-text"},
+    ],
+    "wedding_planner": [
+        {"label": "Wedding Plan", "doc_type": "wedding_plan", "icon": "heart"},
+        {"label": "Budget Breakdown", "doc_type": "wedding_budget", "icon": "dollar"},
+    ],
+    "product_launch": [
+        {"label": "Launch Plan", "doc_type": "launch_plan", "icon": "rocket"},
+        {"label": "Launch Checklist", "doc_type": "launch_checklist", "icon": "check-list"},
+    ],
+    "event_planning": [
+        {"label": "Event Plan", "doc_type": "event_plan", "icon": "calendar"},
+        {"label": "Event Budget", "doc_type": "event_budget", "icon": "dollar"},
+    ],
+    "business_strategy": [
+        {"label": "Strategy Document", "doc_type": "strategy_plan", "icon": "trending-up"},
+        {"label": "Action Plan", "doc_type": "action_plan", "icon": "check-list"},
+    ],
+    "qa_helper": [
+        {"label": "Analysis Report", "doc_type": "analysis", "icon": "search"},
+        {"label": "Summary Report", "doc_type": "summary_report", "icon": "file-text"},
+    ],
 }
 
 

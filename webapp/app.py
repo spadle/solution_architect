@@ -21,6 +21,7 @@ from pydantic import BaseModel
 from mcp_server.diagram import DiagramGraph
 from mcp_server.modes import get_mode, list_modes
 from mcp_server.ollama_client import (
+    MODE_DOC_TYPES,
     generate_branch_name,
     generate_doc,
     generate_question,
@@ -211,6 +212,7 @@ async def api_start(req: StartRequest):
         "title": generated_title,
         "question": question,
         "diagram": _build_diagram_response(sid),
+        "doc_types": MODE_DOC_TYPES.get(req.mode_id, MODE_DOC_TYPES.get("qa_helper")),
     }
 
 
