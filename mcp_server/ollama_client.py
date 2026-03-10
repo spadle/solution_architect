@@ -78,7 +78,7 @@ def _call_openrouter(model: str, messages: list[dict], temperature: float) -> st
         )
 
         try:
-            with urllib.request.urlopen(req, timeout=120) as resp:
+            with urllib.request.urlopen(req, timeout=55) as resp:
                 data = json.loads(resp.read().decode("utf-8"))
                 msg = data.get("choices", [{}])[0].get("message", {})
                 content = msg.get("content", "") or ""
