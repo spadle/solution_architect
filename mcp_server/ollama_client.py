@@ -19,12 +19,12 @@ logger = logging.getLogger(__name__)
 
 OPENROUTER_URL = os.environ.get("OPENROUTER_URL", "https://openrouter.ai/api/v1/chat/completions")
 OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY", "")
-MODEL = os.environ.get("LLM_MODEL", "openrouter/free")
+MODEL = os.environ.get("LLM_MODEL", "nvidia/nemotron-3-super-120b-a12b:free")
 FALLBACK_MODELS = [
+    "openrouter/free",
     "google/gemma-3-27b-it:free",
     "meta-llama/llama-3.3-70b-instruct:free",
     "mistralai/mistral-small-3.1-24b-instruct:free",
-    "nvidia/nemotron-nano-9b-v2:free",
 ]
 
 # Language directives appended to system prompts
