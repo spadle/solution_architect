@@ -1,10 +1,11 @@
-"""LLM client for question generation via OpenRouter API."""
+"""LLM client — NVIDIA Nemotron 3 Super (primary) with OpenRouter fallback."""
 
 from __future__ import annotations
 
 import json
 import logging
 import os
+import time
 import urllib.request
 import urllib.error
 
@@ -17,9 +18,14 @@ except ImportError:
 
 logger = logging.getLogger(__name__)
 
+# ── NVIDIA direct API ────────────────────────────────────────────────────
+NVIDIA_URL = os.environ.get("NVIDIA_URL", "https://integrate.api.nvidia.com/v1/chat/completions")
+NVIDIA_API_KEY = os.environ.get("NVIDIA_API_KEY", "")
+NVIDIA_MODEL = os.environ.get("NVIDIA_MODEL", "nvidia/nemotron-3-super-120b-a12b")
+
+# ── OpenRouter fallback ──────────────────────────────────────────────────
 OPENROUTER_URL = os.environ.get("OPENROUTER_URL", "https://openrouter.ai/api/v1/chat/completions")
 OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY", "")
-MODEL = os.environ.get("LLM_MODEL", "nvidia/nemotron-3-super-120b-a12b:free")
 FALLBACK_MODELS = [
     "openrouter/free",
     "google/gemma-3-27b-it:free",
@@ -35,20 +41,76 @@ LANGUAGE_DIRECTIVES = {
 
 
 def _call_llm(messages: list[dict], temperature: float = 0.7) -> str:
-    """Call OpenRouter chat API with automatic fallback to alternative models."""
-    models_to_try = [MODEL] + FALLBACK_MODELS
+    """Try NVIDIA Nemotron direct, then fall back to OpenRouter models."""
+    # 1. Try NVIDIA direct API first
+    if NVIDIA_API_KEY:
+        result = _call_nvidia(messages, temperature)
+        if result:
+            return result
+        logger.info("NVIDIA API failed, falling back to OpenRouter...")
 
-    for model in models_to_try:
+    # 2. OpenRouter fallback chain
+    for model in FALLBACK_MODELS:
         result = _call_openrouter(model, messages, temperature)
         if result:
             return result
-        logger.info(f"Model {model} failed, trying next fallback...")
+        logger.info(f"OpenRouter {model} failed, trying next...")
 
     logger.error("All models failed")
     return ""
 
 
-import time
+def _call_nvidia(messages: list[dict], temperature: float) -> str:
+    """Call NVIDIA Nemotron 3 Super directly via integrate.api.nvidia.com."""
+    payload = json.dumps({
+        "model": NVIDIA_MODEL,
+        "messages": messages,
+        "temperature": temperature,
+        "max_tokens": 4096,
+        "top_p": 0.95,
+    }).encode("utf-8")
+
+    max_retries = 2
+    for attempt in range(max_retries):
+        req = urllib.request.Request(
+            NVIDIA_URL,
+            data=payload,
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {NVIDIA_API_KEY}",
+            },
+        )
+
+        try:
+            with urllib.request.urlopen(req, timeout=55) as resp:
+                data = json.loads(resp.read().decode("utf-8"))
+                msg = data.get("choices", [{}])[0].get("message", {})
+                content = msg.get("content", "") or ""
+                # Nemotron may return reasoning_content separately
+                if not content.strip():
+                    content = msg.get("reasoning_content", "") or msg.get("reasoning", "") or ""
+                content = _strip_thinking(content)
+                if content.strip():
+                    logger.info(f"NVIDIA Nemotron OK (len={len(content)})")
+                    return content.strip()
+                return ""
+        except urllib.error.HTTPError as e:
+            body = e.read().decode("utf-8", errors="replace") if e.fp else ""
+            logger.warning(f"NVIDIA HTTP {e.code} (attempt {attempt+1}): {body[:200]}")
+            if e.code in (429, 500, 502, 503) and attempt < max_retries - 1:
+                time.sleep((attempt + 1) * 2)
+                continue
+            return ""
+        except urllib.error.URLError as e:
+            logger.error(f"NVIDIA connection failed (attempt {attempt+1}): {e}")
+            if attempt < max_retries - 1:
+                time.sleep(2)
+                continue
+            return ""
+        except Exception as e:
+            logger.error(f"NVIDIA error: {e}")
+            return ""
+    return ""
 
 
 def _call_openrouter(model: str, messages: list[dict], temperature: float) -> str:
@@ -82,7 +144,6 @@ def _call_openrouter(model: str, messages: list[dict], temperature: float) -> st
                 data = json.loads(resp.read().decode("utf-8"))
                 msg = data.get("choices", [{}])[0].get("message", {})
                 content = msg.get("content", "") or ""
-                # Some models return reasoning instead of content
                 if not content.strip():
                     content = msg.get("reasoning", "") or ""
                 content = _strip_thinking(content)
@@ -90,11 +151,8 @@ def _call_openrouter(model: str, messages: list[dict], temperature: float) -> st
         except urllib.error.HTTPError as e:
             body = e.read().decode("utf-8", errors="replace") if e.fp else ""
             logger.warning(f"OpenRouter {model} HTTP {e.code} (attempt {attempt+1}): {body[:200]}")
-            # Retry on 429 (rate limit) or 5xx (server error)
             if e.code in (429, 500, 502, 503) and attempt < max_retries - 1:
-                wait = (attempt + 1) * 2
-                logger.info(f"Retrying {model} in {wait}s...")
-                time.sleep(wait)
+                time.sleep((attempt + 1) * 2)
                 continue
             return ""
         except urllib.error.URLError as e:
